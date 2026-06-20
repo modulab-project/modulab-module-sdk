@@ -1,0 +1,63 @@
+// Example Tier 2/3 handler for a ModuLab module (Deno runtime).
+//
+// Runs in its own Deno Worker (one per module), isolated from Core and
+// other modules. Permissions are restricted by Core based on your
+// manifest.yaml declarations: --allow-net only hosts listed in egress_allowlist,
+// --allow-read/write only this module's storage directory, --cached-only means
+// no runtime fetching of dependencies (vendor them, see README).
+//
+// You do NOT implement your own authentication. Core calls your handler
+// with a typed, already-verified auth context - trust it, nothing else.
+
+export interface ModuleAuthContext {
+userId: string;
+userEmail: string;
+userName: string;
+roles: string[];
+scopes: string[];
+locationId: string;
+}
+
+export interface HandlerRequest {
+method: "GET" | "POST" | "PATCH" | "DELETE";
+path: string;
+body?: unknown;
+auth: ModuleAuthContext;
+// Pre-decrypted credential values declared in manifest.yaml credentials
+// (tier 3 only). Never log these, never echo them back in responses.
+credentials?: Record<string, string>;
+// Scoped database client, can only touch this module's own
+// PostgreSQL schema (module_{name}). Enforced by role grants and RLS,
+// not just convention.
+db: ModuleDbClient;
+}
+
+export interface HandlerResponse {
+status: number;
+body: unknown;
+}
+
+export interface ModuleDbClient {
+query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+}
+
+export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
+switch (`${req.method} ${req.path}`) {
+case "GET /items": {
+const rows = await req.db.query("SELECT id, title FROM items ORDER BY created_at DESC");
+return { status: 200, body: rows };
+}
+
+case "POST /items": {
+const { title } = req.body as { title: string };
+const [row] = await req.db.query(
+"INSERT INTO items (title, created_by) VALUES ($1, $2) RETURNING id, title",
+[title, req.auth.userId],
+);
+return { status: 201, body: row };
+}
+
+default:
+return { status: 404, body: { error: "not found" } };
+}
+}
