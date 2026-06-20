@@ -1,0 +1,26 @@
+# Example manifest.yaml for a ModuLab module.
+# Full field reference: modulab-manifest-schema/v1/manifest.schema.json (and ModuLab Core specification, chapter 4).
+
+name: "modulab-mod-example"
+version: "0.1.0"
+author: "Your name or organization"
+license: "MIT"
+category: "productivity"
+min_core_api: "v1"
+min_core_ui: "v1"
+tier: 2
+scope: "per-location"
+startup: "lazy"
+
+resources:
+  memory: "128m"
+      timeout: "10s"
+handler: "handlers/index.ts"    
+    # Tier 1 only (config-driven CRUD, no handler code): add a top-level "crud" block with "table" and "fields".
+    # Optional: "depends_on" for dependencies on other modules with a SemVer range.
+    # Optional: "storage" with a "quota" for persistent file storage.
+    # Optional (tier 3): "credentials" for typed configuration values, encrypted at rest, never exposed to the frontend bundle.
+    # Optional (tier 3): "egress_allowlist" for outbound connections enforced by Deno --allow-net.
+    # Optional: "requested_scopes" shown to the admin as a plain-text warning before installation.
+    # Optional: "jobs" for background cron jobs registered in the Valkey scheduler.
+    # See manifest.schema.json for the exact shape of each of these fields.
