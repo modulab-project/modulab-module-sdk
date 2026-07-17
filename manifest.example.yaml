@@ -34,16 +34,25 @@ handler: "handlers/index.ts"
 #     handler: "jobs/report.ts"
 #     catch_up: false
 
-# Planned, not yet enforced by Core - declaring these today has no effect:
-# resources:
-#   memory: "128m"
-#   timeout: "10s"
-# crud: (tier 1 config-driven modules)
+# Tier 1 only, required (instead of handler/egress_allowlist/jobs above):
+# config-driven CRUD, no handler code at all. See GUIDE.md, chapter
+# "Tier 1: config-driven CRUD" for the full example (incl. the required
+# migrations/001_initial.sql shape) and the generated API/UI it gives you.
+# crud:
 #   table: "items"
+#   owner_scoped: false
 #   fields:
 #     - name: "title"
 #       type: "string"
 #       required: true
+#     - name: "notes"
+#       type: "text"
+#       encrypted: true
+
+# Planned, not yet enforced by Core - declaring these today has no effect:
+# resources:
+#   memory: "128m"
+#   timeout: "10s"
 # storage:
 #   quota: "1g"
 

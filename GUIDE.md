@@ -14,10 +14,10 @@ running as separate services or containers.
 
 ## Module tiers
 
-- **Tier 1 — config-driven (planned, not yet implemented).** The idea: a `crud` block
-  in `manifest.yaml` defines a table and its fields, and Core generates CRUD endpoints
-  and a fallback UI automatically, no backend code. Declaring `crud` today has no
-  effect — until this ships, build a tier 2 handler even for simple CRUD.
+- **Tier 1 — config-driven CRUD.** A `crud` block in `manifest.yaml` declares a table
+  and its fields; Core serves a generic REST API and a built-in fallback UI directly —
+  no handler code, no `ui/bundle.js`, no Deno worker at all. See "Tier 1: config-driven
+  CRUD" below.
 - **Tier 2 — custom logic.** A TypeScript handler (`handlers/index.ts`) running inside
   a sandboxed Deno Worker.
 - **Tier 3 — external integrations.** Like tier 2, but additionally declares an
@@ -80,15 +80,16 @@ Required fields: `name`, `version`, `author`, `license`, `category`, `min_core`,
 | `license` | SPDX identifier; unknown values are rejected by registry CI |
 | `category` | One of: productivity, finance, network, media, smart-home |
 | `min_core` | Core API version, currently `v1` |
-| `tier` | 1 (planned), 2, or 3 |
+| `tier` | 1, 2, or 3 |
 | `description` / `display_name` | Map of language code → text, e.g. `{"en": "...", "de": "..."}`. Shown in the Module Store. |
 | `logo` | Filename of a logo shipped at the repo root, e.g. `logo.png` |
+| `crud` | Tier 1 only, required: `table`, `fields[]`, optional `owner_scoped`. See "Tier 1: config-driven CRUD" below. |
 | `handler` | Tier 2/3 only, required: path to the entry handler, e.g. `handlers/index.ts` |
 | `egress_allowlist` | Tier 3 only: list of hostnames (strings), enforced by `--allow-net`. Tier 2 must not declare this. |
-| `jobs` | Background cron jobs (`name`, `schedule`, `handler`, optional `catch_up`), minute-granularity cron |
-| `tls_skip_verify` | Only for modules whose runtime destinations are private IPs with no CA cert. Requires a non-empty `egress_allowlist`. |
-| `dynamic_egress` / `egress_hosts_handler` | For modules whose egress hosts are only known at runtime (e.g. admin-configured gateway IPs) rather than fixed in the manifest |
-| `resources`, `crud`, `storage.quota` | **Planned, not yet enforced by Core.** Declaring them today has no effect. |
+| `jobs` | Tier 2/3 only: background cron jobs (`name`, `schedule`, `handler`, optional `catch_up`), minute-granularity cron |
+| `tls_skip_verify` | Tier 2/3 only: for modules whose runtime destinations are private IPs with no CA cert. Requires a non-empty `egress_allowlist`. |
+| `dynamic_egress` / `egress_hosts_handler` | Tier 2/3 only: for modules whose egress hosts are only known at runtime (e.g. admin-configured gateway IPs) rather than fixed in the manifest |
+| `resources`, `storage.quota` | **Planned, not yet enforced by Core.** Declaring them today has no effect. |
 
 There is no Core-provided mechanism for declared/typed credentials, module
 dependencies, or a pre-install permission-warning list — each module handles its own
@@ -99,6 +100,69 @@ schema, written through its own admin UI).
 discovery entries, not in your module's own manifest.
 
 See `schema/v1/manifest.schema.json` for the exact, authoritative shape of every field.
+
+## Tier 1: config-driven CRUD
+
+A Tier 1 module ships `manifest.yaml` and `migrations/001_initial.sql` — nothing else.
+No handler, no `ui/bundle.js`. Core serves a generic REST API directly against your
+table and renders a built-in list/form UI from your field declarations.
+
+```yaml
+crud:
+  table: "notes"
+  owner_scoped: true
+  fields:
+    - name: "title"
+      type: "string"
+      required: true
+    - name: "body"
+      type: "text"
+      encrypted: true
+```
+
+- `owner_scoped: true` restricts every row to the user who created it — list, get,
+  update, delete all enforce `created_by = <caller>`, strictly, with no exception for
+  any role, not even admins. Leave it `false` (default) for shared data every user of
+  the module can see and edit.
+- `encrypted: true` (string/text fields only) stores the value AES-256-GCM encrypted at
+  rest and transparently decrypts it on read. Encrypted fields cannot be filtered or
+  searched server-side.
+
+**The table is not auto-generated.** Your migration must create it with your declared
+fields plus the columns Core itself manages:
+
+```sql
+CREATE TABLE notes (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by TEXT        NOT NULL, -- only needed when owner_scoped: true
+    title      TEXT        NOT NULL,
+    body       TEXT        NOT NULL DEFAULT '' -- encrypted: true still stores as text
+);
+```
+
+At install/update, Core cross-checks this table against your `crud` declaration
+(column-by-column, by name and type) and rejects the install with a clear error on any
+mismatch — rather than surfacing an opaque SQL error the first time someone calls the
+API.
+
+**Generated API**, mounted at `/v1/modules/{name}/api/{table}` (same base path and
+module-scoped-token auth as a tier 2/3 module's own API):
+
+- `GET /{table}?page=&page_size=` — list, newest first. `page_size` defaults to 50,
+  capped at 200.
+- `POST /{table}` — create. `id`/`created_at`/`updated_at`/`created_by` are always
+  server-set, never accepted from the request body.
+- `PATCH /{table}/{id}` — update. `owner_scoped` modules 403 unless you created the row.
+- `DELETE /{table}/{id}` — same ownership check as `PATCH`.
+
+Field values are validated server-side against their declared type — a request that
+doesn't match gets a 400, not a raw SQL error.
+
+**Generated UI**: Core's built-in `CrudModuleView` renders a list (one column per
+declared field) and an add/edit form (one input per field, mapped by type — text,
+textarea, number, checkbox, date/datetime picker). You write none of it.
 
 ## Handler API (tier 2/3)
 
@@ -120,11 +184,13 @@ lexicographic order inside a single transaction. On update, only new migration f
 
 ## UI
 
-Your module ships `ui/bundle.js`, a React component loaded directly into the host app
-(no iframe, see "Security model" above). It receives `ModuleComponentProps`
+Tier 1 modules get a generated UI for free — see "Tier 1: config-driven CRUD" above,
+you write nothing.
+
+Tier 2/3 modules ship `ui/bundle.js`, a React component loaded directly into the host
+app (no iframe, see "Security model" above). It receives `ModuleComponentProps`
 (`moduleName`, `apiBase`, `token`, optional `initialQuery`) and is responsible for its
-own data fetching against `apiBase` using `token` as a bearer token. Tier 1 (once it
-ships) will let you skip the UI entirely and use Core's generated view instead.
+own data fetching against `apiBase` using `token` as a bearer token.
 
 ## Vendoring dependencies
 

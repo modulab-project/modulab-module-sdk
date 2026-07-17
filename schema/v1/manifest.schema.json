@@ -37,7 +37,7 @@
           },
           "tier": {
                   "type": "integer",
-                  "description": "Module tier: 1 = config-driven CRUD (planned, not yet implemented by Core), 2 = TypeScript handlers, 3 = TypeScript handlers with egress.",
+                  "description": "Module tier: 1 = config-driven CRUD, no handler code (Core generates the REST API and a fallback UI from the crud block), 2 = TypeScript handlers, 3 = TypeScript handlers with egress.",
                   "enum": [1, 2, 3]
           },
           "description": {
@@ -111,11 +111,16 @@
           },
           "crud": {
                   "type": "object",
-                  "description": "Planned, not yet implemented by Core: tier 1 config-driven CRUD definition. Declaring this today has no effect - tier 1 modules currently need a handler like tier 2 until this ships.",
+                  "description": "Tier 1 only, required: config-driven CRUD definition. Core generates a REST API (GET/POST/PATCH/DELETE on module_{name}.{table}) and a built-in fallback UI from this - no handler code, no ui/bundle.js. The table itself is NOT auto-generated: ship migrations/001_initial.sql with the declared fields plus Core's implicit columns (id uuid, created_at/updated_at timestamptz, and created_by text when owner_scoped) - see modulab-module-sdk's GUIDE.md for the exact snippet.",
                   "required": ["table", "fields"],
                   "additionalProperties": false,
                   "properties": {
-                            "table": { "type": "string" },
+                            "table": { "type": "string", "description": "Table name within this module's own module_{name} schema. Lowercase, must start with a letter, [a-z0-9_] only." },
+                            "owner_scoped": {
+                                        "type": "boolean",
+                                        "description": "When true, every row is restricted to the user who created it - list/get/update/delete all enforce created_by = the caller's own user ID, strictly, with no exception for any role (not even admins). When false (default), every user with access to the module can read and write every row (shared data).",
+                                        "default": false
+                            },
                             "fields": {
                                         "type": "array",
                                         "items": {
@@ -123,12 +128,17 @@
                                                       "required": ["name", "type"],
                                                       "additionalProperties": false,
                                                       "properties": {
-                                                                      "name": { "type": "string" },
+                                                                      "name": { "type": "string", "description": "Lowercase, must start with a letter, [a-z0-9_] only. Cannot collide with the implicit columns id/created_at/updated_at/created_by." },
                                                                       "type": {
                                                                                         "type": "string",
                                                                                         "enum": ["string", "text", "integer", "float", "boolean", "date", "datetime", "uuid"]
                                                                       },
-                                                                      "required": { "type": "boolean", "default": false }
+                                                                      "required": { "type": "boolean", "default": false },
+                                                                      "encrypted": {
+                                                                                        "type": "boolean",
+                                                                                        "description": "Stores this field AES-256-GCM encrypted at rest (Core's MODULAB_MODULE_PII_KEY) and transparently decrypts it on read. Only supported for type \"string\" or \"text\". Encrypted values cannot be filtered or searched server-side.",
+                                                                                        "default": false
+                                                                      }
                                                       }
                                         }
                             }
