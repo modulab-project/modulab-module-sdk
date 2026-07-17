@@ -9,8 +9,8 @@
     "properties": {
           "name": {
                   "type": "string",
-                  "description": "Unique module identifier. Must follow the namespace modulab-mod-{name}.",
-                  "pattern": "^modulab-mod-[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                  "description": "Unique module identifier, lowercase with hyphens (e.g. \"notes\", \"unifi-network\"). Must be unique within the module store.",
+                  "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
           },
           "version": {
                   "type": "string",

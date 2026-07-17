@@ -1,7 +1,7 @@
 # Example manifest.yaml for a ModuLab module.
 # Full field reference: schema/v1/manifest.schema.json (vendored) and GUIDE.md, chapter "Manifest reference".
 
-name: "modulab-mod-example"
+name: "example"
 version: "0.1.0"
 author: "Your name or organization"
 license: "MIT"

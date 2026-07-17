@@ -75,7 +75,7 @@ Required fields: `name`, `version`, `author`, `license`, `category`, `min_core`,
 
 | Field | Notes |
 |---|---|
-| `name` | Must match `modulab-mod-{name}` |
+| `name` | Lowercase with hyphens (e.g. `notes`, `unifi-network`); unique within the module store |
 | `version` | SemVer |
 | `license` | SPDX identifier; unknown values are rejected by registry CI |
 | `category` | One of: productivity, finance, network, media, smart-home |
@@ -163,6 +163,15 @@ doesn't match gets a 400, not a raw SQL error.
 **Generated UI**: Core's built-in `CrudModuleView` renders a list (one column per
 declared field) and an add/edit form (one input per field, mapped by type — text,
 textarea, number, checkbox, date/datetime picker). You write none of it.
+
+**Field labels**: by default, column/form labels are the raw field name from
+`crud.fields[].name`. To localize them, ship the same `locales/{lng}.json` files
+tier 2/3 modules use (see "Handler API" and "Vendoring dependencies" below — not
+handler-related here, just the locale files) with one `field_{name}` key per
+field, e.g. `{"field_title": "Titel", "field_body": "Text"}` in `locales/de.json`.
+Core serves these at `GET /v1/modules/{name}/locales/{lng}.json` regardless of
+tier, and `CrudModuleView` looks up `field_{name}` there, falling back to the
+raw field name if the key or the whole file is absent.
 
 ## Handler API (tier 2/3)
 
