@@ -14,8 +14,6 @@ userId: string;
 userEmail: string;
 userName: string;
 roles: string[];
-scopes: string[];
-locationId: string;
 }
 
 export interface HandlerRequest {
@@ -23,14 +21,18 @@ method: "GET" | "POST" | "PATCH" | "DELETE";
 path: string;
 body?: unknown;
 auth: ModuleAuthContext;
-// Pre-decrypted credential values declared in manifest.yaml credentials
-// (tier 3 only). Never log these, never echo them back in responses.
-credentials?: Record<string, string>;
-// Scoped database client, can only touch this module's own
-// PostgreSQL schema (module_{name}). Enforced by role grants and RLS,
-// not just convention.
+// Scoped database client, can only touch this module's own PostgreSQL
+// schema (module_{name}), enforced by a dedicated role + search_path.
+// This is schema-level isolation, not row-level security (RLS) - RLS is
+// not currently used for module data.
 db: ModuleDbClient;
 }
+
+// Your module has no Core-provided mechanism for typed/encrypted external
+// credentials (e.g. a third-party API key). If your handler needs one,
+// store it yourself: e.g. a settings table in your own module_{name}
+// schema, written through your own tier 2/3 admin UI. Never hardcode
+// secrets into your handler code or manifest.yaml.
 
 export interface HandlerResponse {
 status: number;

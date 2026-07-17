@@ -6,23 +6,45 @@ version: "0.1.0"
 author: "Your name or organization"
 license: "MIT"
 category: "productivity"
-min_core_api: "v1"
-min_core_ui: "v1"
+min_core: "v1"
 tier: 2
-scope: "per-location"
-startup: "lazy"
 
-resources:
-  memory: "128m"
-  timeout: "10s"
+# Optional: localized store copy. Falls back to the raw name/no blurb if omitted.
+display_name:
+  en: "Example"
+  de: "Beispiel"
+description:
+  en: "A short description shown in the Module Store."
+  de: "Eine kurze Beschreibung im Module Store."
+
+# Optional: filename of a logo shipped at this repo's root.
+# logo: "logo.png"
 
 handler: "handlers/index.ts"
 
-# Tier 1 only (config-driven CRUD, no handler code): add a top-level "crud" block with "table" and "fields".
-# Optional: "depends_on" for dependencies on other modules with a SemVer range.
-# Optional: "storage" with a "quota" for persistent file storage.
-# Optional (tier 3): "credentials" for typed configuration values, encrypted at rest, never exposed to the frontend bundle.
-# Optional (tier 3): "egress_allowlist" for outbound connections enforced by Deno --allow-net.
-# Optional: "requested_scopes" shown to the admin as a plain-text warning before installation.
-# Optional: "jobs" for background cron jobs registered in the Valkey scheduler.
+# Tier 3 only: hostnames the Deno worker may connect to (enforced by --allow-net).
+# Tier 2 must not declare this.
+# egress_allowlist:
+#   - "api.example.com"
+
+# Optional: background cron jobs (tier 2/3), evaluated at minute granularity.
+# jobs:
+#   - name: "daily-report"
+#     schedule: "0 9 * * *"
+#     handler: "jobs/report.ts"
+#     catch_up: false
+
+# Planned, not yet enforced by Core - declaring these today has no effect:
+# resources:
+#   memory: "128m"
+#   timeout: "10s"
+# crud: (tier 1 config-driven modules)
+#   table: "items"
+#   fields:
+#     - name: "title"
+#       type: "string"
+#       required: true
+# storage:
+#   quota: "1g"
+
 # See schema/v1/manifest.schema.json for the exact shape of each of these fields.

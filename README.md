@@ -21,21 +21,23 @@ handler API, and the publishing workflow.
 
 ## Quick start
 
-1. Copy `manifest.example.yaml` to `manifest.yaml`, set `tier` and fill in the fields
-   relevant to your tier.
-2. Tier 1: add a `crud` block, no code needed. Tier 2/3: copy
-   `handlers/index.ts.example` to `handlers/index.ts` and implement your logic.
+1. Copy `manifest.example.yaml` to `manifest.yaml`, set `tier` (currently 2 or 3 — tier
+   1 is planned, not yet implemented) and fill in the fields relevant to your module.
+2. Copy `handlers/index.ts.example` to `handlers/index.ts` and implement your logic.
 3. Write `migrations/001_initial.sql` (runs against your module's own `module_{name}`
    PostgreSQL schema).
-4. Build your UI with `@modulab/ui` only, or skip it for tier 1 to use Core's generated
-   CRUD view.
+4. Build your UI as a React component (`ui/bundle.js`) — no required component library,
+   it's loaded directly into the host app and calls its own API with the token it's
+   given as a prop.
 5. Vendor external packages with `deno vendor` into `vendor/` — Core runs handlers with
    `--cached-only`.
 6. Validate: `./scripts/validate-manifest.sh manifest.yaml`.
-7. Package into `module.zip` and attach it to a GitHub Release.
+7. Package into `module.zip`, generate `module.zip.sha256`, and attach both to a GitHub
+   Release (Core always verifies the SHA-256; see GUIDE.md for the Cosign signing step).
 
 See [GUIDE.md](GUIDE.md) for the full explanation of every step above, including the
-security model modules run under and the publishing workflow (official vs. community).
+real security model modules run under and the publishing workflow (official vs.
+community).
 
 ## License
 

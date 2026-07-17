@@ -2,9 +2,9 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schema.modulab.app/v1/manifest.schema.json",
     "title": "ModuLab Module Manifest (v1)",
-    "description": "Schema for manifest.yaml as referenced by min_core_api: v1 (specification chapter 4).",
+    "description": "Schema for manifest.yaml as referenced by min_core: v1 (specification chapter 4). Field set is kept in sync with backend/internal/modules/installer.go's Manifest struct in modulab-core, which is the source of truth for what is actually parsed and enforced.",
     "type": "object",
-    "required": ["name", "version", "author", "license", "category", "min_core_api", "min_core_ui", "tier", "scope"],
+    "required": ["name", "version", "author", "license", "category", "min_core", "tier"],
     "additionalProperties": false,
     "properties": {
           "name": {
@@ -30,36 +30,88 @@
                   "description": "Module store category, used for search and filtering.",
                   "enum": ["productivity", "finance", "network", "media", "smart-home"]
           },
-          "scope": {
-                  "type": "string",
-                  "description": "Location scoping model. per-location enforces RLS isolation per Standort; cross-location requires a LocationSelector in the UI and per-request location selection.",
-                  "enum": ["per-location", "cross-location"],
-                  "default": "per-location"
-          },
-          "min_core_api": {
+          "min_core": {
                   "type": "string",
                   "description": "Minimum required Core API version.",
                   "enum": ["v1"]
           },
-          "min_core_ui": {
-                  "type": "string",
-                  "description": "Minimum required @modulab/ui Component Library version.",
-                  "enum": ["v1"]
-          },
           "tier": {
                   "type": "integer",
-                  "description": "Module tier: 1 = config-driven CRUD, 2 = TypeScript handlers, 3 = TypeScript handlers with egress.",
+                  "description": "Module tier: 1 = config-driven CRUD (planned, not yet implemented by Core), 2 = TypeScript handlers, 3 = TypeScript handlers with egress.",
                   "enum": [1, 2, 3]
           },
-          "startup": {
+          "description": {
+                  "type": "object",
+                  "description": "Map of language code to a short blurb, e.g. {\"en\": \"...\", \"de\": \"...\"}. Shown in the Module Store.",
+                  "additionalProperties": { "type": "string" }
+          },
+          "display_name": {
+                  "type": "object",
+                  "description": "Map of language code to a human-readable module name, e.g. {\"en\": \"Recipes\", \"de\": \"Rezepte\"}. Falls back to name in the frontend when absent.",
+                  "additionalProperties": { "type": "string" }
+          },
+          "logo": {
                   "type": "string",
-                  "description": "Module startup behavior.",
-                  "enum": ["eager", "lazy"],
-                  "default": "lazy"
+                  "description": "Filename of an optional logo image shipped at the module's own repo root (e.g. \"logo.png\"). Falls back to the ModuLab mark when absent."
+          },
+          "handler": {
+                  "type": "string",
+                  "description": "Tier 2/3 only: path to the Deno entrypoint (relative path inside module.zip), e.g. handlers/index.ts. Required for tier 2/3."
+          },
+          "egress_allowlist": {
+                  "type": "array",
+                  "description": "Tier 3 only: hostnames the Deno worker may connect to, enforced by --allow-net. Empty or absent means no outbound network. Tier 2 must not declare this.",
+                  "items": { "type": "string" }
+          },
+          "jobs": {
+                  "type": "array",
+                  "description": "Tier 2/3 only: background jobs dispatched by Core's JobRunner. Cron schedules are evaluated once per minute, so anything finer than \"* * * * *\" is not meaningfully supported.",
+                  "items": {
+                            "type": "object",
+                            "required": ["name", "schedule", "handler"],
+                            "additionalProperties": false,
+                            "properties": {
+                                        "name": { "type": "string" },
+                                        "schedule": { "type": "string", "description": "5-field cron expression, minute granularity, e.g. 0 9 1 * *." },
+                                        "handler": { "type": "string", "description": "Path to TypeScript handler within module.zip, e.g. jobs/report.ts." },
+                                        "catch_up": { "type": "boolean", "description": "Whether missed runs should be caught up. Default: false.", "default": false }
+                            }
+                  }
+          },
+          "storage": {
+                  "type": "object",
+                  "description": "Persistent file storage under the module's own storage directory (created lazily on first upload). quota is planned, not yet enforced by Core.",
+                  "additionalProperties": false,
+                  "properties": {
+                            "quota": { "type": "string", "description": "Planned, not yet enforced: soft quota, e.g. 1g." }
+                  }
+          },
+          "tls_skip_verify": {
+                  "type": "boolean",
+                  "description": "When true, scopes the worker's --unsafely-ignore-certificate-errors to exactly its egress hosts. Only for modules whose runtime destinations are private IPs with no CA-issued cert. Requires a non-empty egress_allowlist. Default: false.",
+                  "default": false
+          },
+          "dynamic_egress": {
+                  "type": "boolean",
+                  "description": "When true, Core preserves the running worker's current egress hosts across a module code update instead of resetting to egress_allowlist. Only for modules that add hosts at runtime via egress_hosts_handler. Default: false.",
+                  "default": false
+          },
+          "egress_hosts_handler": {
+                  "type": "string",
+                  "description": "Only meaningful when dynamic_egress is true. Path to a .ts module whose default export is () => Promise<string[]> — the module's own computation of its current runtime egress hosts."
+          },
+          "resources": {
+                  "type": "object",
+                  "description": "Planned, not yet enforced by Core: resource limits for the module's Deno Worker. Declaring this today has no effect.",
+                  "additionalProperties": false,
+                  "properties": {
+                            "memory": { "type": "string", "description": "Worker memory cap, e.g. 128m.", "default": "128m" },
+                            "timeout": { "type": "string", "description": "Max execution time per handler call, e.g. 10s.", "default": "10s" }
+                  }
           },
           "crud": {
                   "type": "object",
-                  "description": "Tier 1 only: config-driven CRUD definition. Core auto-generates handlers.",
+                  "description": "Planned, not yet implemented by Core: tier 1 config-driven CRUD definition. Declaring this today has no effect - tier 1 modules currently need a handler like tier 2 until this ships.",
                   "required": ["table", "fields"],
                   "additionalProperties": false,
                   "properties": {
@@ -79,91 +131,6 @@
                                                                       "required": { "type": "boolean", "default": false }
                                                       }
                                         }
-                            }
-                  }
-          },
-          "handler": {
-                  "type": "string",
-                  "description": "Tier 2/3 only: path to the TypeScript entry handler within the module.zip, e.g. handlers/index.ts."
-          },
-          "resources": {
-                  "type": "object",
-                  "description": "Resource limits for the module's Deno Worker. Relevant only when a handler or jobs are declared.",
-                  "additionalProperties": false,
-                  "properties": {
-                            "memory": { "type": "string", "description": "Worker memory cap, e.g. 128m.", "default": "128m" },
-                            "timeout": { "type": "string", "description": "Max execution time per handler call, e.g. 10s.", "default": "10s" }
-                  }
-          },
-          "depends_on": {
-                  "type": "array",
-                  "description": "Dependencies on other modules, optionally with a SemVer range.",
-                  "items": {
-                            "oneOf": [
-                                        { "type": "string" },
-                                        {
-                                                      "type": "object",
-                                                      "additionalProperties": { "type": "string" },
-                                                      "minProperties": 1,
-                                                      "maxProperties": 1
-                                        }
-                            ]
-                  }
-          },
-          "storage": {
-                  "type": "object",
-                  "description": "Persistent file storage.",
-                  "additionalProperties": false,
-                  "properties": {
-                            "quota": { "type": "string", "description": "Soft quota, e.g. 1g." }
-                  }
-          },
-          "credentials": {
-                  "type": "array",
-                  "description": "Tier 3 only: external credentials and configuration values.",
-                  "items": {
-                            "type": "object",
-                            "required": ["name", "label", "type", "required"],
-                            "additionalProperties": false,
-                            "properties": {
-                                        "name": { "type": "string" },
-                                        "label": { "type": "string" },
-                                        "type": { "type": "string", "enum": ["secret", "string"] },
-                                        "required": { "type": "boolean" },
-                                        "per_location": { "type": "boolean", "description": "Only relevant when scope is cross-location: store one credential set per Standort.", "default": false }
-                            }
-                  }
-          },
-          "egress_allowlist": {
-                  "type": "array",
-                  "description": "Tier 3 only: allowed outbound connections enforced by Deno --allow-net.",
-                  "items": {
-                            "type": "object",
-                            "required": ["host", "port"],
-                            "additionalProperties": false,
-                            "properties": {
-                                        "host": { "type": "string" },
-                                        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
-                            }
-                  }
-          },
-          "requested_scopes": {
-                  "type": "array",
-                  "description": "Permission scopes shown to the admin as a plain-text warning before installation.",
-                  "items": { "type": "string" }
-          },
-          "jobs": {
-                  "type": "array",
-                  "description": "Background jobs registered in the Valkey scheduler.",
-                  "items": {
-                            "type": "object",
-                            "required": ["name", "schedule", "handler"],
-                            "additionalProperties": false,
-                            "properties": {
-                                        "name": { "type": "string" },
-                                        "schedule": { "type": "string", "description": "Cron expression, e.g. 0 9 1 * *." },
-                                        "handler": { "type": "string", "description": "Path to TypeScript handler within module.zip, e.g. jobs/report.ts." },
-                                        "catch_up": { "type": "boolean", "description": "Whether missed runs should be caught up. Default: false.", "default": false }
                             }
                   }
           },

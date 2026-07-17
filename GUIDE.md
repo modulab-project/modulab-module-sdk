@@ -1,9 +1,9 @@
 # ModuLab Module Development Guide
 
 This is the single entry point for building a module for ModuLab (https://modulab.app).
-It covers everything a module needs: the tier model, the security model Core enforces
-around your module, the manifest.yaml field reference, the handler API, and the
-publishing workflow. Start here; you should not need to look anywhere else.
+It describes the actual current behavior of Core (backend/internal/modules/* in
+modulab-core), not an aspirational spec — where something is planned but not yet built,
+it is marked as such explicitly. Start here; you should not need to look anywhere else.
 
 ## What a module is
 
@@ -14,49 +14,64 @@ running as separate services or containers.
 
 ## Module tiers
 
-- **Tier 1 — config-driven.** A `crud` block in `manifest.yaml` defines a table and its
-  fields. Core generates the CRUD endpoints and, optionally, a fallback UI automatically.
-  No backend code required.
-- **Tier 2 — custom logic.** Adds a TypeScript handler (`handlers/index.ts`) that runs
-  inside a sandboxed Deno Worker.
+- **Tier 1 — config-driven (planned, not yet implemented).** The idea: a `crud` block
+  in `manifest.yaml` defines a table and its fields, and Core generates CRUD endpoints
+  and a fallback UI automatically, no backend code. Declaring `crud` today has no
+  effect — until this ships, build a tier 2 handler even for simple CRUD.
+- **Tier 2 — custom logic.** A TypeScript handler (`handlers/index.ts`) running inside
+  a sandboxed Deno Worker.
 - **Tier 3 — external integrations.** Like tier 2, but additionally declares an
   `egress_allowlist` for outbound connections (e.g. UniFi RADIUS, Cloudflare).
 
 ## Security model
 
-Modules do not implement their own authentication. Core calls the handler with an
-already-verified, typed auth context (`ModuleAuthContext`) that should simply be
-trusted.
+**Handler code (tier 2/3)** runs in its own Deno Worker process, one per installed
+module, communicating with Core over a Unix-domain socket (a JSON object per line).
+Deno flags actually enforced:
 
-Each handler runs in its own Deno Worker, with:
-
-- `--allow-net` restricted to hosts listed in `egress_allowlist`
+- `--allow-net` restricted to hosts in `egress_allowlist` (tier 3), plus Core's own DB
+  host and DNS resolver (not module-controlled)
 - `--allow-read`/`--allow-write` restricted to the module's own storage directory
-- `--cached-only` enforced, so there is no runtime fetching of dependencies — vendor
-  everything with `deno vendor` (see "Vendoring dependencies" below)
-- a timeout and memory cap per call (`resources.timeout` / `resources.memory` in
-  `manifest.yaml`, defaulting to 10s / 128m); exceeding either terminates only that
-  call, not Core or other modules
+- `--cached-only` enforced — no runtime fetching of dependencies, vendor everything
+  with `deno vendor`
 
-The module UI renders inside a sandboxed iframe with an opaque origin: no access to the
-parent page, `sessionStorage`, or other modules. All API calls go through a `postMessage`
-RPC that Core exposes.
+Core calls your handler with an already-verified auth context
+(`userId`, `userEmail`, `userName`, `roles`) — trust it, nothing else. Database access
+is schema-scoped: your handler can only read/write its own `module_{name}` PostgreSQL
+schema, via a dedicated role and `search_path`. This is schema-level isolation, **not**
+row-level security — RLS is not currently used for module data.
 
-Database access is schema-scoped: a module can only read and write its own
-`module_{name}` PostgreSQL schema, enforced by a dedicated PostgreSQL role — not just by
-convention.
+**Per-call resource limits (memory/timeout) are planned, not yet enforced.** A
+`resources` block in `manifest.yaml` has no effect today; a handler can currently run
+unbounded.
 
-Tier 3 `credentials` are encrypted at rest and are never exposed to the frontend bundle;
-your handler receives them pre-decrypted in `HandlerRequest.credentials`.
+**The module UI is not sandboxed.** There is no iframe and no postMessage RPC — your
+UI bundle (`ui/bundle.js`, a React component) is loaded via `Blob-URL dynamic import()`
+into the **same JS realm as the host app** and mounted directly. The actual protection
+is a short-lived (20 min), module-scoped bearer token passed as a prop
+(`ModuleComponentProps.token`) instead of the caller's real session token — a buggy or
+compromised UI bundle can only call its own `/v1/modules/{name}/api/*` routes, nothing
+else. Your component calls its own API with plain `fetch()`, no RPC layer.
+
+There is currently no required UI component library (`@modulab/ui` does not exist as a
+package) — build your UI with whatever you choose, mounted as a normal React component.
+
+**Every `module.zip` must be signed.** Core always verifies a SHA-256 digest
+(`module.zip.sha256`) before install. Official modules additionally require a valid
+Cosign signature bundle — Core refuses to install an official-source module with no
+`cosign_sig_url`. Community/custom modules verify a Cosign signature best-effort (shown
+as a badge) if you publish one at the conventional `module.zip.sig` path, but it is not
+required to install. See "Packaging & publishing" below.
 
 ## Manifest reference
 
 `manifest.yaml` is validated against a versioned JSON Schema, vendored in this repo at
 `schema/v1/manifest.schema.json` (source: modulab-manifest-schema, MIT). Run
-`scripts/update-schema.sh` to refresh it against a newer schema release.
+`scripts/update-schema.sh` to refresh it against a newer schema release. The schema is
+kept in sync with Core's actual manifest parser — fields it accepts are fields Core
+reads.
 
-Required fields: `name`, `version`, `author`, `license`, `category`, `min_core_api`,
-`min_core_ui`, `tier`, `scope`.
+Required fields: `name`, `version`, `author`, `license`, `category`, `min_core`, `tier`.
 
 | Field | Notes |
 |---|---|
@@ -64,18 +79,21 @@ Required fields: `name`, `version`, `author`, `license`, `category`, `min_core_a
 | `version` | SemVer |
 | `license` | SPDX identifier; unknown values are rejected by registry CI |
 | `category` | One of: productivity, finance, network, media, smart-home |
-| `scope` | `per-location` (RLS-isolated per Standort) or `cross-location` (needs a `LocationSelector` in the UI, per-request location selection) |
-| `tier` | 1, 2, or 3 (see above) |
-| `startup` | `eager` or `lazy` (default `lazy`) |
-| `resources.memory` / `resources.timeout` | Deno Worker caps, defaults `128m` / `10s` |
-| `handler` | Tier 2/3 only: path to the entry handler, e.g. `handlers/index.ts` |
-| `crud.table` / `crud.fields` | Tier 1 only: config-driven CRUD definition |
-| `depends_on` | Dependencies on other modules, optionally with a SemVer range |
-| `storage.quota` | Persistent file storage soft quota, e.g. `1g` |
-| `credentials` | Tier 3 only: typed config values, encrypted at rest |
-| `egress_allowlist` | Tier 3 only: `{host, port}` entries, enforced by `--allow-net` |
-| `requested_scopes` | Shown to the admin as a plain-text warning before install |
-| `jobs` | Background cron jobs (`name`, `schedule`, `handler`, optional `catch_up`), registered in the Valkey scheduler |
+| `min_core` | Core API version, currently `v1` |
+| `tier` | 1 (planned), 2, or 3 |
+| `description` / `display_name` | Map of language code → text, e.g. `{"en": "...", "de": "..."}`. Shown in the Module Store. |
+| `logo` | Filename of a logo shipped at the repo root, e.g. `logo.png` |
+| `handler` | Tier 2/3 only, required: path to the entry handler, e.g. `handlers/index.ts` |
+| `egress_allowlist` | Tier 3 only: list of hostnames (strings), enforced by `--allow-net`. Tier 2 must not declare this. |
+| `jobs` | Background cron jobs (`name`, `schedule`, `handler`, optional `catch_up`), minute-granularity cron |
+| `tls_skip_verify` | Only for modules whose runtime destinations are private IPs with no CA cert. Requires a non-empty `egress_allowlist`. |
+| `dynamic_egress` / `egress_hosts_handler` | For modules whose egress hosts are only known at runtime (e.g. admin-configured gateway IPs) rather than fixed in the manifest |
+| `resources`, `crud`, `storage.quota` | **Planned, not yet enforced by Core.** Declaring them today has no effect. |
+
+There is no Core-provided mechanism for declared/typed credentials, module
+dependencies, or a pre-install permission-warning list — each module handles its own
+external configuration and dependencies itself (e.g. its own settings table in its own
+schema, written through its own admin UI).
 
 `source_repo`, `manifest_path`, `release_url` are only used in modulab-community
 discovery entries, not in your module's own manifest.
@@ -87,24 +105,26 @@ See `schema/v1/manifest.schema.json` for the exact, authoritative shape of every
 Copy `handlers/index.ts.example` to `handlers/index.ts` and implement your logic there.
 Core passes a typed request into your default-exported handler function:
 
-- `ModuleAuthContext` — `userId`, `userEmail`, `userName`, `roles`, `scopes`,
-  `locationId`. Already verified by Core; trust it.
-- `HandlerRequest` — `method`, `path`, `body`, `auth`, `credentials` (tier 3, pre-decrypted),
-  `db` (`ModuleDbClient`, scoped to your own `module_{name}` schema).
+- `ModuleAuthContext` — `userId`, `userEmail`, `userName`, `roles`. Already verified by
+  Core; trust it.
+- `HandlerRequest` — `method`, `path`, `body`, `auth`, `db` (`ModuleDbClient`, scoped to
+  your own `module_{name}` schema).
 - `HandlerResponse` — `status`, `body`.
-
-Never log or echo `credentials` back in a response.
 
 ## Database
 
-Write `migrations/001_initial.sql`. It runs against your module's own PostgreSQL schema
-(`module_{name}`) — you cannot read or write outside it.
+Write `migrations/001_initial.sql`. On install, Core provisions your schema
+(`module_{name}`) and a dedicated role, then runs your migration files in
+lexicographic order inside a single transaction. On update, only new migration files
+(tracked by filename) are applied.
 
 ## UI
 
-Build your UI as a React bundle using only `@modulab/ui` components — no custom CSS and
-no other UI libraries. Tier 1 modules can skip the UI entirely and use Core's generated
-CRUD view instead.
+Your module ships `ui/bundle.js`, a React component loaded directly into the host app
+(no iframe, see "Security model" above). It receives `ModuleComponentProps`
+(`moduleName`, `apiBase`, `token`, optional `initialQuery`) and is responsible for its
+own data fetching against `apiBase` using `token` as a bearer token. Tier 1 (once it
+ships) will let you skip the UI entirely and use Core's generated view instead.
 
 ## Vendoring dependencies
 
@@ -122,12 +142,20 @@ Validates your `manifest.yaml` against the vendored schema in `schema/v1/manifes
 
 ## Packaging & publishing
 
-Package everything into `module.zip`.
+Package everything into `module.zip`, plus a `module.zip.sha256` (a plain SHA-256
+digest file, e.g. the output of `sha256sum module.zip`) — Core always verifies this,
+regardless of source.
 
-- **Official modules** — open a pull request against modulab-modules.
-- **Community modules** — keep your own repository, attach `module.zip` to a GitHub
-  Release, and submit a discovery entry (with `release_url`) via pull request to
-  modulab-community.
+- **Official modules** — open a pull request against modulab-modules. Signing (Cosign)
+  is handled by that repo's own release pipeline; Core refuses to install an official
+  module without a valid signature.
+- **Community modules** — keep your own repository, attach `module.zip` and
+  `module.zip.sha256` to a GitHub Release, and submit a discovery entry (with
+  `release_url`) via pull request to modulab-community. Signing is optional but
+  recommended: generate a key pair with `cosign generate-key-pair`, sign with
+  `cosign sign-blob --bundle module.zip.sig module.zip`, and publish the bundle
+  alongside the release at that conventional path — Core verifies it best-effort and
+  shows a verified badge in the Store.
 
 ## Related repositories
 
