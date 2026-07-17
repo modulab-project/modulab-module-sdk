@@ -1,0 +1,185 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schema.modulab.app/v1/manifest.schema.json",
+    "title": "ModuLab Module Manifest (v1)",
+    "description": "Schema for manifest.yaml as referenced by min_core_api: v1 (specification chapter 4).",
+    "type": "object",
+    "required": ["name", "version", "author", "license", "category", "min_core_api", "min_core_ui", "tier", "scope"],
+    "additionalProperties": false,
+    "properties": {
+          "name": {
+                  "type": "string",
+                  "description": "Unique module identifier. Must follow the namespace modulab-mod-{name}.",
+                  "pattern": "^modulab-mod-[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+          },
+          "version": {
+                  "type": "string",
+                  "description": "SemVer version of the module.",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"
+          },
+          "author": {
+                  "type": "string",
+                  "description": "Name or organization of the module author."
+          },
+          "license": {
+                  "type": "string",
+                  "description": "SPDX license identifier (e.g. MIT, Apache-2.0, AGPL-3.0). Missing or unknown values are rejected by the registry CI."
+          },
+          "category": {
+                  "type": "string",
+                  "description": "Module store category, used for search and filtering.",
+                  "enum": ["productivity", "finance", "network", "media", "smart-home"]
+          },
+          "scope": {
+                  "type": "string",
+                  "description": "Location scoping model. per-location enforces RLS isolation per Standort; cross-location requires a LocationSelector in the UI and per-request location selection.",
+                  "enum": ["per-location", "cross-location"],
+                  "default": "per-location"
+          },
+          "min_core_api": {
+                  "type": "string",
+                  "description": "Minimum required Core API version.",
+                  "enum": ["v1"]
+          },
+          "min_core_ui": {
+                  "type": "string",
+                  "description": "Minimum required @modulab/ui Component Library version.",
+                  "enum": ["v1"]
+          },
+          "tier": {
+                  "type": "integer",
+                  "description": "Module tier: 1 = config-driven CRUD, 2 = TypeScript handlers, 3 = TypeScript handlers with egress.",
+                  "enum": [1, 2, 3]
+          },
+          "startup": {
+                  "type": "string",
+                  "description": "Module startup behavior.",
+                  "enum": ["eager", "lazy"],
+                  "default": "lazy"
+          },
+          "crud": {
+                  "type": "object",
+                  "description": "Tier 1 only: config-driven CRUD definition. Core auto-generates handlers.",
+                  "required": ["table", "fields"],
+                  "additionalProperties": false,
+                  "properties": {
+                            "table": { "type": "string" },
+                            "fields": {
+                                        "type": "array",
+                                        "items": {
+                                                      "type": "object",
+                                                      "required": ["name", "type"],
+                                                      "additionalProperties": false,
+                                                      "properties": {
+                                                                      "name": { "type": "string" },
+                                                                      "type": {
+                                                                                        "type": "string",
+                                                                                        "enum": ["string", "text", "integer", "float", "boolean", "date", "datetime", "uuid"]
+                                                                      },
+                                                                      "required": { "type": "boolean", "default": false }
+                                                      }
+                                        }
+                            }
+                  }
+          },
+          "handler": {
+                  "type": "string",
+                  "description": "Tier 2/3 only: path to the TypeScript entry handler within the module.zip, e.g. handlers/index.ts."
+          },
+          "resources": {
+                  "type": "object",
+                  "description": "Resource limits for the module's Deno Worker. Relevant only when a handler or jobs are declared.",
+                  "additionalProperties": false,
+                  "properties": {
+                            "memory": { "type": "string", "description": "Worker memory cap, e.g. 128m.", "default": "128m" },
+                            "timeout": { "type": "string", "description": "Max execution time per handler call, e.g. 10s.", "default": "10s" }
+                  }
+          },
+          "depends_on": {
+                  "type": "array",
+                  "description": "Dependencies on other modules, optionally with a SemVer range.",
+                  "items": {
+                            "oneOf": [
+                                        { "type": "string" },
+                                        {
+                                                      "type": "object",
+                                                      "additionalProperties": { "type": "string" },
+                                                      "minProperties": 1,
+                                                      "maxProperties": 1
+                                        }
+                            ]
+                  }
+          },
+          "storage": {
+                  "type": "object",
+                  "description": "Persistent file storage.",
+                  "additionalProperties": false,
+                  "properties": {
+                            "quota": { "type": "string", "description": "Soft quota, e.g. 1g." }
+                  }
+          },
+          "credentials": {
+                  "type": "array",
+                  "description": "Tier 3 only: external credentials and configuration values.",
+                  "items": {
+                            "type": "object",
+                            "required": ["name", "label", "type", "required"],
+                            "additionalProperties": false,
+                            "properties": {
+                                        "name": { "type": "string" },
+                                        "label": { "type": "string" },
+                                        "type": { "type": "string", "enum": ["secret", "string"] },
+                                        "required": { "type": "boolean" },
+                                        "per_location": { "type": "boolean", "description": "Only relevant when scope is cross-location: store one credential set per Standort.", "default": false }
+                            }
+                  }
+          },
+          "egress_allowlist": {
+                  "type": "array",
+                  "description": "Tier 3 only: allowed outbound connections enforced by Deno --allow-net.",
+                  "items": {
+                            "type": "object",
+                            "required": ["host", "port"],
+                            "additionalProperties": false,
+                            "properties": {
+                                        "host": { "type": "string" },
+                                        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+                            }
+                  }
+          },
+          "requested_scopes": {
+                  "type": "array",
+                  "description": "Permission scopes shown to the admin as a plain-text warning before installation.",
+                  "items": { "type": "string" }
+          },
+          "jobs": {
+                  "type": "array",
+                  "description": "Background jobs registered in the Valkey scheduler.",
+                  "items": {
+                            "type": "object",
+                            "required": ["name", "schedule", "handler"],
+                            "additionalProperties": false,
+                            "properties": {
+                                        "name": { "type": "string" },
+                                        "schedule": { "type": "string", "description": "Cron expression, e.g. 0 9 1 * *." },
+                                        "handler": { "type": "string", "description": "Path to TypeScript handler within module.zip, e.g. jobs/report.ts." },
+                                        "catch_up": { "type": "boolean", "description": "Whether missed runs should be caught up. Default: false.", "default": false }
+                            }
+                  }
+          },
+          "source_repo": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "modulab-community entries only: repository of the module author."
+          },
+          "manifest_path": {
+                  "type": "string",
+                  "description": "modulab-community entries only: path to manifest.yaml within source_repo."
+          },
+          "release_url": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "modulab-community entries only: URL to the module.zip artifact."
+          }
+    }
+}
