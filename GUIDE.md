@@ -201,6 +201,26 @@ app (no iframe, see "Security model" above). It receives `ModuleComponentProps`
 (`moduleName`, `apiBase`, `token`, optional `initialQuery`) and is responsible for its
 own data fetching against `apiBase` using `token` as a bearer token.
 
+**Your bundle must not include its own copy of React.** Because there is no iframe,
+`ModulePage.tsx` renders your exported component directly inside Core's own React tree.
+Core's frontend exposes its own React, ReactDOM, i18next and react-i18next instances via
+`window.__MODULAB_HOST__` specifically so modules can reuse them instead of bundling
+their own. If you bundle React yourself (e.g. a plain esbuild `--bundle` build), you end
+up with two separate React instances mounted in the same tree — hooks fail silently in
+that situation (dispatcher mismatch between the two copies), producing a blank page with
+no visible error, not a crash.
+
+Use `ui-template/` in this SDK as your starting point: it has a `vite.config.ts` that
+aliases `react`, `react-dom`, `react/jsx-runtime`, `i18next` and `react-i18next` to
+`src/host-shims/*.ts` files, each of which does nothing but re-export the matching
+sub-object from `window.__MODULAB_HOST__`. Copy `ui-template/` into your module's `ui/`
+directory, rename `src/App.example.tsx` to `src/App.tsx`, and build from there. Locale
+strings are preloaded by Core into the shared i18next instance under the namespace
+`mod_{your-module-name}` before your bundle mounts — call `useTranslation("mod_{name}")`
+to read them, and keep your locale JSON keys flat (`provider_admin_summary`, not
+`providerAdmin.summary`) to avoid i18next's default `.` keySeparator splitting nested
+objects you didn't intend.
+
 ## Vendoring dependencies
 
 Core runs handlers with `--cached-only`: anything not vendored fails at runtime instead

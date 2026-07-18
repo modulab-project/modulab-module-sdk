@@ -13,6 +13,10 @@ handler API, and the publishing workflow.
   across all tiers.
 - `handlers/index.ts.example` — a tier 2/3 handler template showing the typed request,
   auth and database client interfaces Core passes into your handler.
+- `ui-template/` — a tier 2/3 frontend starting point (Vite + host-shims). Copy this into
+  your module's `ui/` directory rather than starting a UI build from scratch — it wires
+  up the required `window.__MODULAB_HOST__` aliasing (see GUIDE.md's "UI" section for why
+  this is mandatory, not optional).
 - `schema/v1/manifest.schema.json` — vendored copy of the manifest JSON Schema
   (source: modulab-manifest-schema). Refresh with `scripts/update-schema.sh`.
 - `scripts/validate-manifest.sh` — validates a manifest.yaml locally against the
@@ -26,9 +30,10 @@ handler API, and the publishing workflow.
 2. Copy `handlers/index.ts.example` to `handlers/index.ts` and implement your logic.
 3. Write `migrations/001_initial.sql` (runs against your module's own `module_{name}`
    PostgreSQL schema).
-4. Build your UI as a React component (`ui/bundle.js`) — no required component library,
-   it's loaded directly into the host app and calls its own API with the token it's
-   given as a prop.
+4. Copy `ui-template/` to `ui/` and build your UI from `src/App.example.tsx` (rename it
+   to `App.tsx`) — no required component library beyond what's already wired up. Keep the
+   `vite.config.ts` aliasing as-is; it's what makes your component share Core's own React
+   instance instead of shipping a conflicting copy (see GUIDE.md's "UI" section).
 5. Vendor external packages with `deno vendor` into `vendor/` — Core runs handlers with
    `--cached-only`.
 6. Validate: `./scripts/validate-manifest.sh manifest.yaml`.
